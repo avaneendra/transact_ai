@@ -83,40 +83,141 @@ graph TB
 
 ## 🚀 Getting Started
 
+This guide will help you set up and run TransactAI on your local machine.
+
 ### Prerequisites
 
-1. Python 3.10+
-2. Google Cloud SDK
-3. kubectl
-4. A Google Cloud project with billing enabled
-5. Google AI (Gemini) API key
+1. Python 3.10 or higher
+2. Google Cloud account with:
+   - Billing enabled
+   - Gemini API access
+   - A project with required APIs enabled
+3. Google Cloud SDK
+4. kubectl
+5. Git
 
-### Environment Setup
+### Step-by-Step Setup Guide
 
-1. Clone the repository:
+#### 1. Clone and Setup Environment
+
 ```bash
-git clone [your-repo-url]
-cd [repo-name]
-```
+# Clone the repository
+git clone https://github.com/avaneendra/transact_ai.git
+cd transact_ai
 
-2. Create and activate a virtual environment:
-```bash
+# Create and activate virtual environment
 python -m venv triage_env
 source triage_env/bin/activate  # On Windows: triage_env\Scripts\activate
-```
 
-3. Install dependencies:
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-4. Set up environment variables:
-```bash
-# Create .env file
-echo "GOOGLE_API_KEY=your_api_key_here" > .env
+#### 2. Set Up Google Cloud
 
-# Create .env.boutique file
-echo "BOUTIQUE_API_URL=http://your_boutique_ip" > .env.boutique
+1. Install Google Cloud SDK:
+   - macOS: `brew install google-cloud-sdk`
+   - Other OS: Follow [official instructions](https://cloud.google.com/sdk/docs/install)
+
+2. Configure Google Cloud:
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+```
+
+#### 3. Configure Environment Variables
+
+1. Create `.env` file for Gemini API:
+```bash
+echo "GOOGLE_API_KEY=your_gemini_api_key" > .env
+```
+
+2. Get your Gemini API key:
+   - Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+   - Create a new API key
+   - Copy it to your `.env` file
+
+#### 4. Deploy Online Boutique
+
+1. Run the setup script:
+```bash
+./setup_online_boutique.sh
+```
+
+2. Wait for deployment (5-10 minutes)
+3. Note the external IP address
+4. Create `.env.boutique` file:
+```bash
+echo "BOUTIQUE_API_URL=http://YOUR_EXTERNAL_IP" > .env.boutique
+```
+
+#### 5. Start the Application
+
+1. Start all services:
+```bash
+./start_services.sh
+```
+
+2. Wait for confirmation that all services are running
+3. Open http://localhost:8501 in your browser
+
+### Testing the Application
+
+Try these example commands:
+
+1. View available products:
+```
+show available products
+```
+
+2. Get product details:
+```
+tell me about the hairdryer
+```
+
+3. Place an order:
+```
+I want to buy 2 sunglasses
+```
+
+### Troubleshooting
+
+1. If services fail to start:
+```bash
+./stop_services.sh
+./start_services.sh
+```
+
+2. If ports are in use:
+```bash
+# Check what's using the ports
+lsof -i :8001
+lsof -i :8002
+lsof -i :8003
+lsof -i :8501
+```
+
+3. If Online Boutique is not accessible:
+```bash
+kubectl get pods
+kubectl get services frontend-external
+```
+
+### Service Architecture
+
+Each component runs on a different port:
+- Streamlit UI: http://localhost:8501
+- Order Agent: http://localhost:8001
+- Payment Server: http://localhost:8002
+- Payment AI Agent: http://localhost:8003
+
+### Monitoring and Logs
+
+- View Streamlit logs: Check the terminal where `start_services.sh` is running
+- View service logs:
+```bash
+kubectl logs -f deployment/frontend
+kubectl logs -f deployment/productcatalogservice
 ```
 
 ### Deploy Online Boutique
