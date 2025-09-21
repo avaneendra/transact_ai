@@ -14,11 +14,72 @@ A Google Cloud GKE Turns 10 Hackathon project that enables natural language prod
 
 ## 🛠️ Architecture
 
-- **Orchestrator AI Agent**: Handles user input and coordinates between agents (Gemini + Streamlit)
-- **Order Agent**: Manages product listing and order placement (MCP Protocol)
-- **Payment AI Agent**: Processes payments with natural language understanding (A2A Protocol)
-- **Payment Server**: Simulates payment gateway
-- **Online Boutique**: Google's microservices demo application
+```mermaid
+graph TB
+    User((User)) --> |Natural Language|UI[Streamlit UI]
+    UI --> |Text|Orchestrator[Orchestrator AI Agent]
+    
+    subgraph AI_Layer[AI Layer]
+        Orchestrator --> |Gemini Pro|NLU[Natural Language Understanding]
+        NLU --> |Intent + Args|Orchestrator
+    end
+    
+    subgraph Service_Layer[Service Layer]
+        Orchestrator --> |MCP Protocol|OrderAgent[Order Agent]
+        Orchestrator --> |A2A Protocol|PaymentAgent[Payment AI Agent]
+        OrderAgent --> |REST API|Boutique[Online Boutique]
+        PaymentAgent --> |REST API|PaymentServer[Payment Server]
+    end
+    
+    subgraph Data_Flow[Data Flow]
+        OrderAgent --> |Product List|Orchestrator
+        OrderAgent --> |Order Status|Orchestrator
+        PaymentAgent --> |Payment Status|Orchestrator
+        PaymentServer --> |Transaction ID|PaymentAgent
+    end
+    
+    subgraph Google_Cloud[Google Cloud Platform]
+        Boutique --> |GKE|Products[(Product Catalog)]
+        Boutique --> |GKE|Orders[(Orders)]
+    end
+    
+    style AI_Layer fill:#f9f,stroke:#333,stroke-width:2px
+    style Service_Layer fill:#bbf,stroke:#333,stroke-width:2px
+    style Data_Flow fill:#bfb,stroke:#333,stroke-width:2px
+    style Google_Cloud fill:#feb,stroke:#333,stroke-width:2px
+```
+
+### Component Details
+
+- **Orchestrator AI Agent**: 
+  - Built with Streamlit and Gemini Pro
+  - Coordinates all services
+  - Handles natural language processing
+  - Manages user interactions
+
+- **Order Agent (MCP Protocol)**:
+  - Implements Model Context Protocol
+  - Manages product catalog
+  - Handles order placement
+  - Integrates with Online Boutique
+
+- **Payment AI Agent (A2A Protocol)**:
+  - Implements Agent-to-Agent Protocol
+  - Processes payment requests
+  - Validates transaction details
+  - Communicates with Payment Server
+
+- **Payment Server**:
+  - Simulates payment gateway
+  - Generates transaction IDs
+  - Validates payment details
+  - Returns payment status
+
+- **Online Boutique**:
+  - Google's microservices demo
+  - Runs on GKE
+  - Manages product catalog
+  - Handles order processing
 
 ## 🚀 Getting Started
 

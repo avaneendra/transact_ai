@@ -12,6 +12,44 @@ TransactAI is a natural language e-commerce interface that:
 - Demonstrates microservices communication using A2A and MCP protocols
 
 ## How we built it
+
+Here's our system architecture:
+
+```mermaid
+graph TB
+    User((User)) --> |Natural Language|UI[Streamlit UI]
+    UI --> |Text|Orchestrator[Orchestrator AI Agent]
+    
+    subgraph AI_Layer[AI Layer]
+        Orchestrator --> |Gemini Pro|NLU[Natural Language Understanding]
+        NLU --> |Intent + Args|Orchestrator
+    end
+    
+    subgraph Service_Layer[Service Layer]
+        Orchestrator --> |MCP Protocol|OrderAgent[Order Agent]
+        Orchestrator --> |A2A Protocol|PaymentAgent[Payment AI Agent]
+        OrderAgent --> |REST API|Boutique[Online Boutique]
+        PaymentAgent --> |REST API|PaymentServer[Payment Server]
+    end
+    
+    subgraph Data_Flow[Data Flow]
+        OrderAgent --> |Product List|Orchestrator
+        OrderAgent --> |Order Status|Orchestrator
+        PaymentAgent --> |Payment Status|Orchestrator
+        PaymentServer --> |Transaction ID|PaymentAgent
+    end
+    
+    subgraph Google_Cloud[Google Cloud Platform]
+        Boutique --> |GKE|Products[(Product Catalog)]
+        Boutique --> |GKE|Orders[(Orders)]
+    end
+    
+    style AI_Layer fill:#f9f,stroke:#333,stroke-width:2px
+    style Service_Layer fill:#bbf,stroke:#333,stroke-width:2px
+    style Data_Flow fill:#bfb,stroke:#333,stroke-width:2px
+    style Google_Cloud fill:#feb,stroke:#333,stroke-width:2px
+```
+
 1. **Architecture**:
    - Orchestrator AI Agent (Gemini + Streamlit)
    - Order Agent (MCP Protocol)
