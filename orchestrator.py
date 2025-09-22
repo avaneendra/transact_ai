@@ -200,20 +200,24 @@ def safe_json_parse(raw_output: str) -> dict:
 
 # Step 3: Map natural language to tool using Gemini
 if st.button("Run"):
+    st.info("🤔 Analyzing your request...")
 
     # First get product list to include in prompt
     try:
+        st.info("🔄 Executing listProducts...")
         products_response = requests.post(f"{ORDER_AGENT_URL}/invoke/listProducts")
         if products_response.status_code != 200:
-            st.error(f"Failed to fetch products: {products_response.text}")
+            st.error(f"❌ Failed to execute listProducts: {products_response.text}")
             st.stop()
             
         result = products_response.json()
         if not result.get("products"):
-            st.error("No products available from Online Boutique")
+            st.warning("⚠️ No products available")
             st.stop()
             
         available_products = result["products"]
+        st.success(f"📦 Found {len(available_products)} products")
+        
         # Create detailed product list with prices and descriptions
         product_details = []
         for p in available_products:
@@ -238,51 +242,87 @@ if st.button("Run"):
     # Extract valid product IDs for validation
     valid_product_ids = [p['id'] for p in available_products]
     
-    prompt = f"""
-    You are a JSON-focused API orchestrator for an online boutique. Your responses must be PURE JSON - no markdown, no explanations, no extra text.
+    # Get tools from agent capabilities
+    order_tools = agent_capabilities.get("order_agent", [])
+    if not order_tools:
+        st.error("❌ No Order Agent tools discovered. Is the Order Agent running?")
+        st.stop()
 
-    STRICT RESPONSE FORMAT:
-    For showing products:
-    {{"tool": "listProducts", "args": {{}}}}
+    # Create tool documentation
+    tool_docs = []
+    for tool in order_tools:
+        name = tool.get("name", "")
+        description = tool.get("description", "No description available")
+        input_schema = tool.get("input_schema", {})
+        output_schema = tool.get("output_schema", {})
+        
+        # Create example args based on schema
+        example_args = {}
+        for param_name, param_type in input_schema.items():
+            if param_type == "string" and param_name == "product_id":
+                example_args[param_name] = valid_product_ids[0] if valid_product_ids else "EXAMPLE_ID"
+            elif param_type == "string":
+                example_args[param_name] = f"example_{param_name}"
+            elif param_type == "integer":
+                example_args[param_name] = 1
+            elif param_type == "number":
+                example_args[param_name] = 1.0
+            else:
+                example_args[param_name] = f"<{param_type}>"
+        
+        tool_docs.append(f"""
+        Tool: {name}
+        Description: {description}
+        Input Schema: {json.dumps(input_schema, indent=2)}
+        Output Schema: {json.dumps(output_schema, indent=2)}
+        Example: {{"tool": "{name}", "args": {json.dumps(example_args, indent=2)}}}
+        """)
 
-    For ordering:
-    {{"tool": "placeOrder", "args": {{"product_id": "<VALID_ID>", "quantity": <NUMBER>}}}}
+    # Extract available tool names
+    available_tool_names = [t.get("name") for t in order_tools if t.get("name")]  # Get non-empty tool names
+    
+    # Find list and order tools
+    list_tool = next((t for t in order_tools if any(word in t.get("name", "").lower() or word in t.get("description", "").lower() for word in ["list", "show", "display", "get"])), None)
+    order_tool = next((t for t in order_tools if any(word in t.get("name", "").lower() or word in t.get("description", "").lower() for word in ["order", "buy", "purchase", "place"])), None)
 
-    RULES:
-    1. Response MUST be a single JSON object
-    2. No text before or after the JSON
-    3. No comments or explanations
-    4. No markdown formatting
-    5. Valid product IDs: {valid_product_ids}
-    6. Quantity must be > 0
-    7. IMPORTANT: If user asks for a product that doesn't exist:
-       - ALWAYS use listProducts
-       - Do not try to guess or substitute products
-       - Example: "order cooker" -> use listProducts because cooker isn't in our catalog
-    8. Default to listProducts if:
-       - User asks to see products
-       - Product doesn't exist or isn't found
-       - Intent is unclear
-       - You're not 100% sure about the product
-
-    AVAILABLE PRODUCTS:
-    {products_text}
-
-    EXAMPLE INPUTS AND OUTPUTS:
-
-    Input: "show me what you have"
-    Output: {{"tool": "listProducts", "args": {{}}}}
-
-    Input: "I want to buy 2 sunglasses"
-    Output: {{"tool": "placeOrder", "args": {{"product_id": "{valid_product_ids[0]}", "quantity": 2}}}}
-
-    Input: "order a candle"
-    Output: {{"tool": "placeOrder", "args": {{"product_id": "0PUK6V6EV0", "quantity": 1}}}}
-
-    USER INPUT: "{user_input}"
-
-    RESPOND WITH JSON ONLY:
-    """
+    # Create the prompt
+    prompt = (
+        f"You are a JSON-focused API orchestrator for an online boutique. Your responses must be PURE JSON - no markdown, no explanations, no extra text.\n\n"
+        f"AVAILABLE TOOLS:\n"
+        f"{chr(10).join(tool_docs)}\n\n"
+        f"STRICT RESPONSE FORMAT:\n"
+        f'{{"tool": "<TOOL_NAME>", "args": <TOOL_PARAMETERS>}}\n'
+        f"Where TOOL_NAME must be one of: {available_tool_names}\n\n"
+        f"RULES:\n"
+        f"1. Response MUST be a single JSON object\n"
+        f"2. No text before or after the JSON\n"
+        f"3. No comments or explanations\n"
+        f"4. No markdown formatting\n"
+        f"5. Valid product IDs: {valid_product_ids}\n"
+        f"6. For order operations: quantity must be > 0\n"
+        f"7. IMPORTANT: If user asks for a product that does not exist:\n"
+        f"   - ALWAYS use the list/display tool\n"
+        f"   - Do not try to guess or substitute products\n"
+        f'   - Example: "order cooker" -> use list tool because cooker is not in catalog\n'
+        f"8. Default to list/display tool if:\n"
+        f"   - User asks to see products\n"
+        f"   - Product does not exist or is not found\n"
+        f"   - Intent is unclear\n"
+        f"   - You are not 100% sure about the product\n\n"
+        f"AVAILABLE PRODUCTS:\n"
+        f"{products_text}\n\n"
+        f"EXAMPLE INPUTS AND OUTPUTS:\n"
+        f'Input: "show me what you have"\n'
+        f'Output: {{"tool": "{list_tool["name"] if list_tool else "listProducts"}", "args": {{}}}}\n\n'
+        f'Input: "display available products"\n'
+        f'Output: {{"tool": "{list_tool["name"] if list_tool else "listProducts"}", "args": {{}}}}\n\n'
+        f'Input: "I want to buy 2 sunglasses"\n'
+        f'Output: {{"tool": "{order_tool["name"] if order_tool else "placeOrder"}", "args": {{"product_id": "{valid_product_ids[0]}", "quantity": 2}}}}\n\n'
+        f'Input: "order a {available_products[0]["name"] if available_products else "product"}"\n'
+        f'Output: {{"tool": "{order_tool["name"] if order_tool else "placeOrder"}", "args": {{"product_id": "{valid_product_ids[0]}", "quantity": 1}}}}\n\n'
+        f'USER INPUT: "{user_input}"\n\n'
+        f"RESPOND WITH JSON ONLY:"
+    )
     ai_response = asyncio.run(ask_gemini(prompt))
     try:
         decision = safe_json_parse(ai_response)
@@ -314,33 +354,63 @@ if st.button("Run"):
         
         product_name = extract_product_name(user_input)
         
-        if tool_name == "listProducts" and product_name:
+        # Get tool specification
+        tool_spec = next((t for t in agent_capabilities["order_agent"] if t["name"] == tool_name), None)
+        if not tool_spec:
+            st.error(f"Tool specification not found for {tool_name}")
+            st.stop()
+            
+        # Check if this is a product listing tool
+        if "products" in tool_spec.get("output_schema", {}) and product_name:
             # Check if this was a failed product search
             if any(word in user_input.lower() for word in ['order', 'buy', 'purchase', 'want']):
                 st.error(f"❌ Product '{product_name}' is not available in our catalog. Here are our available products:")
             else:
                 st.info("📦 Showing all available products:")
         
-        # Extra validation for placeOrder
-        if tool_name == "placeOrder":
+        # Extra validation for order tools
+        if "order" in tool_spec.get("output_schema", {}):
             # Get latest product list for validation
             try:
-                validate_response = requests.post(f"{ORDER_AGENT_URL}/invoke/listProducts")
+                # Find the product listing tool
+                list_tool = next((t for t in agent_capabilities["order_agent"] if "products" in t.get("output_schema", {})), None)
+                if not list_tool:
+                    st.error("No product listing tool found")
+                    st.stop()
+                    
+                validate_response = requests.post(f"{ORDER_AGENT_URL}/invoke/{list_tool['name']}")
                 if validate_response.status_code == 200:
                     valid_products = validate_response.json().get("products", [])
                     valid_ids = [p["id"] for p in valid_products]
                     
                     if args.get("product_id") not in valid_ids:
                         st.error(f"Invalid product ID: {args.get('product_id')}. Showing available products instead.")
-                        tool_name = "listProducts"
+                        # Switch to product listing tool
+                        tool_name = list_tool["name"]
                         args = {}
             except Exception as e:
                 st.warning(f"Could not validate product ID: {str(e)}. Proceeding with order...")
 
         # Step 4: Call the appropriate tool
         try:
-            if tool_name not in ["listProducts", "placeOrder"]:
-                st.error(f"Unknown tool: {tool_name}")
+            # Validate tool exists in capabilities
+            available_tools = [tool["name"] for tool in agent_capabilities.get("order_agent", [])]
+            if tool_name not in available_tools:
+                st.error(f"Unknown tool: {tool_name}. Available tools: {', '.join(available_tools)}")
+                st.stop()
+                
+            # Get tool specification
+            tool_spec = next((t for t in agent_capabilities["order_agent"] if t["name"] == tool_name), None)
+            if not tool_spec:
+                st.error(f"Tool specification not found for {tool_name}")
+                st.stop()
+                
+            # Validate required parameters
+            required_params = tool_spec.get("input_schema", {})
+            missing_params = [param for param in required_params if param not in args]
+            if missing_params:
+                st.error(f"Missing required parameters: {', '.join(missing_params)}")
+                st.write("Tool specification:", tool_spec)
                 st.stop()
             
             # Make the API call to Order Agent
@@ -370,8 +440,17 @@ if st.button("Run"):
                 st.error(f"Unexpected error calling Order Agent: {str(e)}")
                 st.stop()
             
-            # Handle listProducts response
-            if tool_name == "listProducts":
+            # Get tool specification
+            tool_spec = next((t for t in agent_capabilities["order_agent"] if t["name"] == tool_name), None)
+            if not tool_spec:
+                st.error(f"Tool specification not found for {tool_name}")
+                st.stop()
+
+            # Handle response based on tool's output schema
+            output_schema = tool_spec.get("output_schema", {})
+            
+            # Handle product listing tools (tools that return a list of products)
+            if "products" in output_schema:
                 if not result.get('products'):
                     st.warning("No products available")
                     st.stop()
@@ -394,12 +473,17 @@ if st.button("Run"):
                     ---
                     """)
                     
-            # Handle placeOrder response
-            elif tool_name == "placeOrder":
+            # Handle order creation tools (tools that return an order object)
+            elif "order" in output_schema:
                 # Get latest products from Online Boutique
                 try:
                     # Get product details from Order Agent since it already has the parsed data
-                    product_response = requests.post(f"{ORDER_AGENT_URL}/invoke/listProducts")
+                    list_tool = next((t for t in agent_capabilities["order_agent"] if "products" in t.get("output_schema", {})), None)
+                    if not list_tool:
+                        st.error("No product listing tool found")
+                        st.stop()
+                        
+                    product_response = requests.post(f"{ORDER_AGENT_URL}/invoke/{list_tool['name']}")
                     if product_response.status_code != 200:
                         st.error(f"Failed to fetch product details: {product_response.text}")
                         st.stop()
@@ -459,10 +543,21 @@ if st.button("Run"):
                     
                     if payment_resp.status_code == 200:
                         payment_result = payment_resp.json()
-                        # Extract transaction ID from the A2A response payload
-                        transaction_id = payment_result.get('payload', {}).get('transaction_id', 'Unknown')
-                        st.success(f"💳 Payment processed successfully! Transaction ID: {transaction_id}")
-                        st.write("Payment Details:", payment_result.get('payload', {}))
+                        if payment_result.get('message_type') == 'error':
+                            st.error(f"❌ Payment failed: {payment_result.get('payload', {}).get('error', 'Unknown error')}")
+                        else:
+                            # Extract transaction ID from the A2A response payload
+                            transaction_id = payment_result.get('payload', {}).get('transaction_id', 'Unknown')
+                            st.success(f"💳 Payment processed successfully! Transaction ID: {transaction_id}")
+                            
+                            # Display payment details in a clean format
+                            payment_details = payment_result.get('payload', {})
+                            st.markdown("""
+                            #### Payment Details:
+                            """)
+                            for key, value in payment_details.items():
+                                if key != 'transaction_id':  # Already shown above
+                                    st.markdown(f"- **{key.replace('_', ' ').title()}:** {value}")
                     else:
                         st.error(f"❌ Payment failed: {payment_resp.text}")
                 except requests.exceptions.ConnectionError:
