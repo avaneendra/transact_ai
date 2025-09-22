@@ -5,7 +5,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 class PaymentRequest(BaseModel):
-    order_id: int
+    order_id: str  # Changed to str to support UUID order IDs
     amount: float
     method: str
 

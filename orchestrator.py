@@ -4,6 +4,7 @@ import requests
 import json
 import re
 import os
+import time
 import google.generativeai as genai
 from dotenv import load_dotenv
 import asyncio
@@ -200,11 +201,8 @@ def safe_json_parse(raw_output: str) -> dict:
 
 # Step 3: Map natural language to tool using Gemini
 if st.button("Run"):
-    st.info("🤔 Analyzing your request...")
-
     # First get product list to include in prompt
     try:
-        st.info("🔄 Executing listProducts...")
         products_response = requests.post(f"{ORDER_AGENT_URL}/invoke/listProducts")
         if products_response.status_code != 200:
             st.error(f"❌ Failed to execute listProducts: {products_response.text}")
@@ -216,7 +214,6 @@ if st.button("Run"):
             st.stop()
             
         available_products = result["products"]
-        st.success(f"📦 Found {len(available_products)} products")
         
         # Create detailed product list with prices and descriptions
         product_details = []
@@ -506,40 +503,62 @@ if st.button("Run"):
                 # Process the order
                 order = result["order"]
                 st.success("Order placed successfully!")
+                # Calculate total amount using price from Online Boutique
+                unit_price = float(valid_product.get("priceUsd", 0))
+                total_amount = unit_price * args["quantity"]
+                
                 st.markdown(f"""
                 #### Order Details:
                 - **Order ID:** `{order['order_id']}`
                 - **Tracking ID:** `{order.get('tracking_id', 'Unknown')}`
                 - **Product ID:** `{order['product_id']}`
+                - **Product:** {valid_product.get('name', 'Unknown')}
+                - **Price:** ${unit_price:.2f} each
                 - **Quantity:** {order['quantity']}
-                - **Total Paid:** ${order.get('total_paid', 0.0):.2f}
+                - **Total Paid:** ${total_amount:.2f}
                 - **Status:** {order['status']}
                 """)
-                
-                # Calculate total amount using price from Online Boutique
-                total_amount = float(valid_product.get("priceUsd", 0)) * args["quantity"]
                 
                 # Automatically handle payment after successful order
                 try:
                     st.info("Processing payment...")
-                    payment_resp = requests.post(
-                        "http://localhost:8003/a2a/processPayment",
-                        json={
-                            "message_type": "request",
-                            "sender": "orchestrator_agent",
-                            "intent": "process_payment",
-                            "conversation_id": f"order_{order['order_id']}",
-                            "payload": {
-                                "message": f"Process payment of ${total_amount} for order {order['order_id']}",
-                                "context": {
-                                    "order_id": order['order_id'],
-                                    "product": valid_product,
-                                    "quantity": args["quantity"],
-                                    "total_amount": total_amount
-                                }
+                    # Prepare payment request
+                    payment_request = {
+                        "message_type": "request",
+                        "sender": "orchestrator_agent",
+                        "intent": "process_payment",
+                        "conversation_id": f"order_{order['order_id']}",
+                        "payload": {
+                            "message": f"Process payment of ${total_amount} for order {order['order_id']}",
+                            "context": {
+                                "order_id": order['order_id'],
+                                "product": valid_product,
+                                "quantity": args["quantity"],
+                                "total_amount": total_amount
                             }
                         }
-                    )
+                    }
+                    
+                    # Send payment request with retries
+                    max_retries = 3
+                    retry_delay = 2  # seconds
+                    
+                    for attempt in range(max_retries):
+                        try:
+                            payment_resp = requests.post(
+                                "http://localhost:8003/a2a/processPayment",
+                                json=payment_request,
+                                timeout=5.0  # 5 seconds timeout per attempt
+                            )
+                            # If we get here, the request succeeded
+                            break
+                        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                            if attempt < max_retries - 1:
+                                st.warning(f"Payment attempt {attempt + 1} failed, retrying in {retry_delay} seconds...")
+                                time.sleep(retry_delay)
+                                continue
+                            else:
+                                raise  # Re-raise the last error if all retries failed
                     
                     if payment_resp.status_code == 200:
                         payment_result = payment_resp.json()
@@ -562,8 +581,15 @@ if st.button("Run"):
                         st.error(f"❌ Payment failed: {payment_resp.text}")
                 except requests.exceptions.ConnectionError:
                     st.error("Could not connect to Payment AI Agent. Is it running?")
+                except requests.exceptions.Timeout:
+                    st.error("Payment request timed out. Please try again.")
                 except Exception as e:
                     st.error(f"Unexpected error processing payment: {str(e)}")
+                    st.write("Debug Information:")
+                    st.write(f"- Payment Agent URL: http://localhost:8003")
+                    st.write(f"- Order ID: {order['order_id']}")
+                    st.write(f"- Amount: ${total_amount:.2f}")
+                    st.write(f"- Error: {str(e)}")
                     
         except requests.exceptions.ConnectionError:
             st.error("Could not connect to Order Agent. Is it running?")

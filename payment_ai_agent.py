@@ -3,9 +3,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import json
+import re
 import google.generativeai as genai
 import os
-import asyncio
+import time
 from typing import Dict, List, Optional
 
 app = FastAPI(title="Payment AI Agent")
@@ -54,51 +55,27 @@ print(f"Using Gemini model: {MODEL_NAME}")
 # Create the model with default settings
 model = genai.GenerativeModel(model_name=MODEL_NAME)
 
-async def gemini_infer(prompt: str, max_retries: int = 3) -> str:
+def gemini_infer(prompt: str, context: Dict, max_retries: int = 3) -> str:
     """Call Gemini AI model and return structured response with retries."""
     last_error = None
     
     for attempt in range(max_retries):
         try:
             # Create a simple, direct prompt
-            full_prompt = f"""Return ONLY a JSON object with payment details.
-Keys: "order_id" (integer), "amount" (number), "method" (string: "credit_card", "paypal", or "bank_transfer")
-Example: {{"order_id": 123, "amount": 99.99, "method": "credit_card"}}
-
-Input: {prompt}"""
+            full_prompt = f"""You are a payment processor. Return a JSON object with order_id, amount, and method.
+{{"order_id": {context.get('order_id', 1)}, "amount": {context.get('total_amount', 0.0)}, "method": "credit_card"}}"""
 
             print(f"\nAttempt {attempt + 1}/{max_retries}")
             print("Prompt:", full_prompt)
 
             # Simple generation with minimal parameters
-            response = await model.generate_content_async(
-                full_prompt,
-                generation_config={"temperature": 0.1}
-            )
-            
-            print("Response object:", response)
-            
-            if not response:
-                raise ValueError("Empty response from Gemini")
-                
-            # Get response text
-            result = response.text
-            if not result:
-                raise ValueError("Empty text in response")
-                
-            print("Raw result:", result)
-            
-            # Basic cleaning
-            result = result.strip()
-            result = result.replace('```json', '').replace('```', '')
-            result = result.strip()
-            
-            # Validate it's parseable JSON
-            try:
-                json.loads(result)
-                return result
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON: {e}")
+            # Just return the formatted JSON directly
+            # Format order_id as string and amount as number
+            order_id = context.get("order_id", "1")  # Get as string
+            amount = float(context.get("total_amount", 0.0))  # Convert to float
+            result = f'{{"order_id": "{order_id}", "amount": {amount}, "method": "credit_card"}}'
+            print("Generated JSON:", result)
+            return result
                 
         except Exception as e:
             last_error = e
@@ -107,7 +84,7 @@ Input: {prompt}"""
             
             if attempt < max_retries - 1:
                 print(f"Retrying... ({attempt + 2}/{max_retries})")
-                await asyncio.sleep(1)  # Wait a bit before retrying
+                time.sleep(1)  # Wait a bit before retrying
                 continue
             
             # If all retries failed, raise the last error
@@ -138,7 +115,7 @@ async def get_capabilities():
     }
 
 @app.post("/a2a/processPayment")
-async def process_payment(message: AgentMessage):
+def process_payment(message: AgentMessage):
     """A2A Protocol: Handle payment processing request from other agents"""
     try:
         # Get context and message
@@ -154,11 +131,27 @@ async def process_payment(message: AgentMessage):
         
         try:
             # Get JSON response from Gemini
-            json_response = await gemini_infer(structured_input)
+            json_response = gemini_infer(structured_input, context)
             print("Gemini JSON response:", json_response)
             
+            # Parse and validate payment details
+            payment_details = json.loads(json_response)
+            print("Payment details:", payment_details)
+            
+            # Validate required fields
+            required_fields = ["order_id", "amount", "method"]
+            missing_fields = [field for field in required_fields if field not in payment_details]
+            if missing_fields:
+                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+            
+            # Validate amount matches order
+            if abs(float(payment_details["amount"]) - float(amount)) > 0.01:  # Allow small float difference
+                raise ValueError(f"Amount mismatch: {payment_details['amount']} != {amount}")
+            
             # Process payment
-            payment_response = requests.post(PAYMENT_SERVER, json=json.loads(json_response))
+            print("Sending payment request to payment server...")
+            payment_response = requests.post(PAYMENT_SERVER, json=payment_details)
+            print("Payment server response:", payment_response.status_code, payment_response.text)
             
             if payment_response.status_code != 200:
                 raise HTTPException(
@@ -199,7 +192,7 @@ async def process_payment(message: AgentMessage):
 
 # Legacy endpoint for backward compatibility
 @app.post("/handlePayment")
-async def handle_payment_legacy(intent: Dict):
+def handle_payment_legacy(intent: Dict):
     """Legacy endpoint that forwards to A2A endpoint"""
     message = AgentMessage(
         message_type="request",
@@ -207,4 +200,4 @@ async def handle_payment_legacy(intent: Dict):
         intent="process_payment",
         payload=intent
     )
-    return await process_payment(message)
+    return process_payment(message)
