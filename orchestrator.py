@@ -59,7 +59,7 @@ if not BOUTIQUE_API_URL:
     st.error("BOUTIQUE_API_URL not found in .env.boutique")
     st.stop()
 
-st.title("🧩 Orchestrator AI Agent (MCP + Gemini)")
+st.title("Orchestrator AI Agent (MCP + Gemini)")
 
 # Step 1: Discover available agents and their capabilities
 @st.cache_resource
@@ -205,12 +205,12 @@ if st.button("Run"):
     try:
         products_response = requests.post(f"{ORDER_AGENT_URL}/invoke/listProducts")
         if products_response.status_code != 200:
-            st.error(f"❌ Failed to execute listProducts: {products_response.text}")
+            st.error(f"Failed to execute listProducts: {products_response.text}")
             st.stop()
             
         result = products_response.json()
         if not result.get("products"):
-            st.warning("⚠️ No products available")
+            st.warning("No products available")
             st.stop()
             
         available_products = result["products"]
@@ -361,7 +361,7 @@ if st.button("Run"):
         if "products" in tool_spec.get("output_schema", {}) and product_name:
             # Check if this was a failed product search
             if any(word in user_input.lower() for word in ['order', 'buy', 'purchase', 'want']):
-                st.error(f"❌ Product '{product_name}' is not available in our catalog. Here are our available products:")
+                st.error(f"Product '{product_name}' is not available in our catalog. Here are our available products:")
             else:
                 st.info("📦 Showing all available products:")
         
@@ -452,7 +452,7 @@ if st.button("Run"):
                     st.warning("No products available")
                     st.stop()
                 if not product_name:
-                    st.write("📦 Available Products:")
+                    st.write("Available Products:")
                 st.markdown("---")  # Add separator
                 for product in result["products"]:
                     price_usd = float(product.get('priceUsd', 0))
@@ -563,11 +563,11 @@ if st.button("Run"):
                     if payment_resp.status_code == 200:
                         payment_result = payment_resp.json()
                         if payment_result.get('message_type') == 'error':
-                            st.error(f"❌ Payment failed: {payment_result.get('payload', {}).get('error', 'Unknown error')}")
+                            st.error(f"Payment failed: {payment_result.get('payload', {}).get('error', 'Unknown error')}")
                         else:
                             # Extract transaction ID from the A2A response payload
                             transaction_id = payment_result.get('payload', {}).get('transaction_id', 'Unknown')
-                            st.success(f"💳 Payment processed successfully! Transaction ID: {transaction_id}")
+                            st.success(f"Payment processed successfully! Transaction ID: {transaction_id}")
                             
                             # Display payment details in a clean format
                             payment_details = payment_result.get('payload', {})
@@ -578,7 +578,7 @@ if st.button("Run"):
                                 if key != 'transaction_id':  # Already shown above
                                     st.markdown(f"- **{key.replace('_', ' ').title()}:** {value}")
                     else:
-                        st.error(f"❌ Payment failed: {payment_resp.text}")
+                        st.error(f"Payment failed: {payment_resp.text}")
                 except requests.exceptions.ConnectionError:
                     st.error("Could not connect to Payment AI Agent. Is it running?")
                 except requests.exceptions.Timeout:
