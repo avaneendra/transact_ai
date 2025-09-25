@@ -48,6 +48,8 @@ async def get_products():
         endpoints = ['/']  # Only need homepage to get product IDs
         
         products_found = False
+        product_ids = []  # Initialize product_ids here
+        
         for endpoint in endpoints:
             try:
                 url = f"{BOUTIQUE_API_URL.rstrip('/')}{endpoint}"
@@ -80,7 +82,7 @@ async def get_products():
                             # Look for product links or data
                             soup = BeautifulSoup(text, 'html.parser')
                             product_links = soup.find_all('a', href=re.compile(r'/product/[A-Z0-9]+'))
-                            product_ids = []
+                            
                             for link in product_links:
                                 # Extract product ID from href
                                 match = re.search(r'/product/([A-Z0-9]+)', link['href'])
