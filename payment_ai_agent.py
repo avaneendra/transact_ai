@@ -92,26 +92,90 @@ def gemini_infer(prompt: str, context: Dict, max_retries: int = 3) -> str:
             print(error_msg)
             raise ValueError(error_msg)
 
-@app.get("/.well-known/agent-capabilities")
-async def get_capabilities():
-    """A2A Protocol: Advertise agent capabilities"""
+@app.get("/.well-known/agent-card")
+async def get_agent_card():
+    """A2A Protocol: Agent Card Discovery Endpoint"""
     return {
-        "agent_id": "payment_ai_agent",
-        "capabilities": [
-            AgentCapability(
-                name="processPayment",
-                description="Process payment for an order using natural language understanding",
-                input_schema={
-                    "message": "string",  # Natural language payment request
-                    "context": "object"   # Optional context about the order
+        "name": "Payment AI Agent",
+        "version": "1.0.0",
+        "description": "AI-powered payment processing agent that handles natural language payment requests",
+        "url": "http://localhost:8003",  # Base URL where the agent is hosted
+        "contact": {
+            "name": "TransactAI Team",
+            "email": "support@transactai.example.com"
+        },
+        "apis": {
+            "sendMessage": {
+                "url": "/a2a/processPayment",
+                "method": "POST",
+                "description": "Process a payment request",
+                "requestSchema": {
+                    "type": "object",
+                    "properties": {
+                        "message_type": {"type": "string", "enum": ["request"]},
+                        "sender": {"type": "string"},
+                        "intent": {"type": "string"},
+                        "payload": {
+                            "type": "object",
+                            "properties": {
+                                "message": {"type": "string"},
+                                "context": {
+                                    "type": "object",
+                                    "properties": {
+                                        "order_id": {"type": "string"},
+                                        "total_amount": {"type": "number"}
+                                    },
+                                    "required": ["order_id", "total_amount"]
+                                }
+                            },
+                            "required": ["message", "context"]
+                        },
+                        "conversation_id": {"type": "string"}
+                    },
+                    "required": ["message_type", "sender", "intent", "payload"]
                 },
-                output_schema={
+                "responseSchema": {
+                    "type": "object",
+                    "properties": {
+                        "message_type": {"type": "string", "enum": ["response", "error"]},
+                        "sender": {"type": "string"},
+                        "intent": {"type": "string"},
+                        "payload": {
+                            "type": "object",
+                            "properties": {
+                                "status": {"type": "string"},
+                                "transaction_id": {"type": "string"},
+                                "details": {"type": "object"},
+                                "error": {"type": "string"}
+                            }
+                        },
+                        "conversation_id": {"type": "string"}
+                    },
+                    "required": ["message_type", "sender", "intent", "payload"]
+                }
+            }
+        },
+        "capabilities": [
+            {
+                "name": "processPayment",
+                "description": "Process payment for an order using natural language understanding",
+                "input": {
+                    "message": "string",  # Natural language payment request
+                    "context": {
+                        "order_id": "string",
+                        "total_amount": "number"
+                    }
+                },
+                "output": {
                     "status": "string",
                     "transaction_id": "string",
                     "details": "object"
                 }
-            ).model_dump()
-        ]
+            }
+        ],
+        "securitySchemes": {
+            "none": {}  # No authentication required for now
+        }
     }
 
 @app.post("/a2a/processPayment")

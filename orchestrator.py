@@ -26,10 +26,9 @@ available_models = [model.name for model in genai.list_models()]
 
 # Try different model names in order of preference
 model_names = [
-    'gemini-pro',
+    'gemini-pro',  # Most stable version
+    'gemini-1.0-pro-vision',
     'gemini-1.0-pro',
-    'gemini-1.5-pro',
-    'gemini-2.0-pro',
     'gemini-2.5-pro'
 ]
 
@@ -79,12 +78,17 @@ def discover_agent_capabilities():
     except Exception as e:
         st.error(f"Error discovering Order Agent capabilities: {str(e)}")
     
-    # Discover A2A capabilities from Payment Agent
+    # Discover A2A capabilities from Payment Agent using agent card
     try:
-        response = requests.get("http://localhost:8003/.well-known/agent-capabilities")
+        response = requests.get("http://localhost:8003/.well-known/agent-card")
         if response.status_code == 200:
-            agent_info = response.json()
-            capabilities["payment_agent"] = agent_info["capabilities"]
+            agent_card = response.json()
+            capabilities["payment_agent"] = {
+                "card": agent_card,  # Store the full agent card
+                "apis": agent_card.get("apis", {}),
+                "capabilities": agent_card.get("capabilities", []),
+                "url": agent_card.get("url", "http://localhost:8003")
+            }
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to Payment Agent")
     except Exception as e:
@@ -539,6 +543,25 @@ if st.button("Run"):
                         }
                     }
                     
+                    # Get payment agent capabilities
+                    payment_agent = agent_capabilities.get("payment_agent", {})
+                    if not payment_agent:
+                        raise ValueError("Payment agent capabilities not found")
+                    
+                    # Get the sendMessage API endpoint from agent card
+                    send_message_api = payment_agent.get("apis", {}).get("sendMessage", {})
+                    if not send_message_api:
+                        raise ValueError("sendMessage API not found in agent card")
+                    
+                    # Construct the full URL using the base URL from agent card
+                    base_url = payment_agent.get("url", "http://localhost:8003").rstrip("/")
+                    api_url = f"{base_url}{send_message_api['url']}"
+                    
+                    # Validate request against schema
+                    request_schema = send_message_api.get("requestSchema", {})
+                    # TODO: Add JSON Schema validation here
+                    print(f"API url: {api_url}")
+                    
                     # Send payment request with retries
                     max_retries = 3
                     retry_delay = 2  # seconds
@@ -546,7 +569,7 @@ if st.button("Run"):
                     for attempt in range(max_retries):
                         try:
                             payment_resp = requests.post(
-                                "http://localhost:8003/a2a/processPayment",
+                                api_url,
                                 json=payment_request,
                                 timeout=5.0  # 5 seconds timeout per attempt
                             )
